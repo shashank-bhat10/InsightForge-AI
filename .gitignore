@@ -1,0 +1,58 @@
+# Environment variables and secrets
+.env
+.env.*
+backend/.env
+frontend/.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Uploaded/generated files
+backend/uploads/*
+uploads/*
+datasets/*
+reports/*
+screenshots/*
+
+# Node
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python build files
+build/
+*.egg-info/
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
