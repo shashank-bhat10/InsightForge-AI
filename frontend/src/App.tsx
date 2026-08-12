@@ -2531,12 +2531,10 @@ function App() {
                     >
                       <strong>No date/time column detected.</strong>
                       <p style={{ marginBottom: 0 }}>
-                        Forecasting requires a dataset containing a date or
-                        time column and a numeric value to forecast. This
-                        BlinkIT dataset does not contain a transaction date,
-                        so it cannot produce a meaningful time-series forecast.
-                        Upload a time-series dataset to use this feature.
-                      </p>
+  Forecasting requires a dataset containing a date or time
+  column and at least one numeric value to forecast.
+  Upload a time-series dataset to use this feature.
+</p>
                     </div>
                   ) : (
                     <form onSubmit={generateForecast}>
