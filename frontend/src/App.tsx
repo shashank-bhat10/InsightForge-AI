@@ -10,7 +10,7 @@ import {
 } from 'recharts'
 import './App.css'
 
-const API_URL = 'https://insightforge-backend-61dc.onrender.com'
+const API_URL = 'https://insightforge-backend-6ldc.onrender.com'
 
 type User = {
   id: number
