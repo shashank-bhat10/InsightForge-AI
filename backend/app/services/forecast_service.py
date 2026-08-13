@@ -17,7 +17,6 @@ def _load_dataset(file_path: str) -> pd.DataFrame:
     path = Path(normalized_path)
 
     if not path.is_absolute():
-        # Try path relative to current working directory.
         if not path.exists():
             project_root = Path(__file__).resolve().parents[2]
             path = project_root / path
@@ -75,28 +74,53 @@ def _looks_like_date_column(column_name: str) -> bool:
     return any(keyword in name for keyword in date_keywords)
 
 
-def _parse_date_column(series: pd.Series, column_name: str):
+def _parse_date_column(
+    series: pd.Series,
+    column_name: str,
+):
     """
-    Try several strategies to determine whether a column contains dates.
-    Returns parsed datetime values or None.
+    Try to determine whether a column contains dates.
+
+    Date-like column names are given priority so columns such as
+    'Date' are reliably detected even when pandas initially treats
+    them as object/string data.
     """
 
     # Already datetime
     if pd.api.types.is_datetime64_any_dtype(series):
-        parsed = pd.to_datetime(series, errors="coerce")
-        return parsed
-
-    # Normal string/object date values
-    if pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series):
-        cleaned = series.astype(str).str.strip()
-
         parsed = pd.to_datetime(
-            cleaned,
+            series,
             errors="coerce",
-            format="mixed",
         )
 
         if parsed.notna().mean() >= 0.80:
+            return parsed
+
+    # Clean string/object values
+    cleaned = series.astype("string").str.strip()
+
+    # First attempt: normal date parsing
+    parsed = pd.to_datetime(
+        cleaned,
+        errors="coerce",
+        format="mixed",
+    )
+
+    valid_ratio = parsed.notna().mean()
+
+    if valid_ratio >= 0.80:
+        return parsed
+
+    # Second attempt for date-like column names.
+    # This intentionally gives columns such as "Date" a stronger
+    # detection path.
+    if _looks_like_date_column(column_name):
+        parsed = pd.to_datetime(
+            cleaned,
+            errors="coerce",
+        )
+
+        if parsed.notna().mean() >= 0.50:
             return parsed
 
     # Numeric timestamps
@@ -104,6 +128,7 @@ def _parse_date_column(series: pd.Series, column_name: str):
         non_null = series.dropna()
 
         if len(non_null) > 0:
+
             # Unix seconds
             parsed_seconds = pd.to_datetime(
                 non_null,
@@ -119,6 +144,7 @@ def _parse_date_column(series: pd.Series, column_name: str):
                 )
 
                 result.loc[non_null.index] = parsed_seconds
+
                 return result
 
             # Unix milliseconds
@@ -136,6 +162,7 @@ def _parse_date_column(series: pd.Series, column_name: str):
                 )
 
                 result.loc[non_null.index] = parsed_milliseconds
+
                 return result
 
     return None
@@ -179,7 +206,7 @@ def get_forecast_columns(file_path: str):
     numeric_columns = []
 
     for column in df.columns:
-        column_name = str(column)
+        column_name = str(column).strip()
         series = df[column]
 
         # Numeric columns
@@ -187,7 +214,10 @@ def get_forecast_columns(file_path: str):
             numeric_columns.append(column_name)
 
         # Date/time detection
-        parsed = _parse_date_column(series, column_name)
+        parsed = _parse_date_column(
+            series,
+            column_name,
+        )
 
         if parsed is not None:
             valid_ratio = parsed.notna().mean()
@@ -272,7 +302,6 @@ def generate_forecast(
             f"Use one of: {', '.join(sorted(allowed_frequencies))}."
         )
 
-    # Aggregate observations into regular time periods.
     series = (
         data.set_index("date")["value"]
         .resample(frequency)
