@@ -54,6 +54,10 @@ def _detect_problem_type(series: pd.Series) -> str:
 def _prepare_features(df: pd.DataFrame, target_column: str):
     """
     Prepare feature and target data.
+
+    Date/datetime columns are converted into useful
+    numerical time-based features before high-cardinality
+    text columns are removed.
     """
 
     if target_column not in df.columns:
@@ -74,7 +78,75 @@ def _prepare_features(df: pd.DataFrame, target_column: str):
     X = data.drop(columns=[target_column])
     y = data[target_column]
 
-    # Remove columns with only one unique value.
+    # ---------------------------------------------------------
+    # Detect and convert date/time columns
+    # ---------------------------------------------------------
+
+    date_columns = []
+
+    for column in X.columns:
+
+        # Already a datetime column
+        if pd.api.types.is_datetime64_any_dtype(X[column]):
+            date_columns.append(column)
+            continue
+
+        # Detect date/time columns based on column name
+        column_name = str(column).strip().lower()
+
+        if any(
+            keyword in column_name
+            for keyword in [
+                "date",
+                "datetime",
+                "timestamp",
+                "time",
+            ]
+        ):
+            parsed = pd.to_datetime(
+                X[column],
+                errors="coerce",
+            )
+
+            valid_ratio = parsed.notna().mean()
+
+            if valid_ratio >= 0.80:
+                X[column] = parsed
+                date_columns.append(column)
+
+    # ---------------------------------------------------------
+    # Convert date columns into numerical ML features
+    # ---------------------------------------------------------
+
+    for column in date_columns:
+
+        date_series = pd.to_datetime(
+            X[column],
+            errors="coerce",
+        )
+
+        X[f"{column}_year"] = date_series.dt.year
+
+        X[f"{column}_month"] = date_series.dt.month
+
+        X[f"{column}_day"] = date_series.dt.day
+
+        X[f"{column}_dayofweek"] = date_series.dt.dayofweek
+
+        X[f"{column}_dayofyear"] = date_series.dt.dayofyear
+
+        # Continuous date value useful for trend detection.
+        X[f"{column}_ordinal"] = (
+            date_series - pd.Timestamp("1970-01-01")
+        ).dt.total_seconds() / 86400
+
+        # Remove original date column.
+        X = X.drop(columns=[column])
+
+    # ---------------------------------------------------------
+    # Remove columns with only one unique value
+    # ---------------------------------------------------------
+
     constant_columns = [
         column
         for column in X.columns
@@ -84,7 +156,10 @@ def _prepare_features(df: pd.DataFrame, target_column: str):
     if constant_columns:
         X = X.drop(columns=constant_columns)
 
-    # Remove very high-cardinality text columns such as identifiers.
+    # ---------------------------------------------------------
+    # Remove very high-cardinality text columns
+    # ---------------------------------------------------------
+
     columns_to_remove = []
 
     for column in X.select_dtypes(
@@ -131,7 +206,7 @@ def _build_preprocessor(X: pd.DataFrame):
             steps=[
                 (
                     "imputer",
-                    SimpleImputer(strategy="median")
+                    SimpleImputer(strategy="median"),
                 )
             ]
         )
@@ -140,7 +215,7 @@ def _build_preprocessor(X: pd.DataFrame):
             (
                 "numeric",
                 numeric_pipeline,
-                numeric_columns
+                numeric_columns,
             )
         )
 
@@ -152,14 +227,14 @@ def _build_preprocessor(X: pd.DataFrame):
                     "imputer",
                     SimpleImputer(
                         strategy="most_frequent"
-                    )
+                    ),
                 ),
                 (
                     "encoder",
                     OneHotEncoder(
                         handle_unknown="ignore"
-                    )
-                )
+                    ),
+                ),
             ]
         )
 
@@ -167,7 +242,7 @@ def _build_preprocessor(X: pd.DataFrame):
             (
                 "categorical",
                 categorical_pipeline,
-                categorical_columns
+                categorical_columns,
             )
         )
 
@@ -200,7 +275,7 @@ def _get_models(problem_type: str):
             "Random Forest": RandomForestClassifier(
                 n_estimators=100,
                 random_state=42,
-                n_jobs=-1
+                n_jobs=-1,
             ),
 
             "Gradient Boosting": GradientBoostingClassifier(
@@ -218,7 +293,7 @@ def _get_models(problem_type: str):
         "Random Forest": RandomForestRegressor(
             n_estimators=100,
             random_state=42,
-            n_jobs=-1
+            n_jobs=-1,
         ),
 
         "Gradient Boosting": GradientBoostingRegressor(
@@ -255,12 +330,12 @@ def _build_pipeline(preprocessor, model):
         steps=[
             (
                 "preprocessor",
-                preprocessor
+                preprocessor,
             ),
             (
                 "model",
-                model
-            )
+                model,
+            ),
         ]
     )
 
@@ -310,18 +385,18 @@ def _calculate_explainability(
                 "feature": str(feature),
                 "importance": round(
                     float(importance),
-                    6
+                    6,
                 ),
                 "std": round(
                     float(std),
-                    6
+                    6,
                 ),
             }
         )
 
     feature_importances.sort(
         key=lambda item: item["importance"],
-        reverse=True
+        reverse=True,
     )
 
     # Keep the top 10 features for the UI.
@@ -337,7 +412,7 @@ def _calculate_explainability(
 def train_and_compare_models(
     file_path: str,
     target_column: str,
-    problem_type: str = "auto"
+    problem_type: str = "auto",
 ):
     """
     Train multiple machine-learning models,
@@ -355,7 +430,7 @@ def train_and_compare_models(
     if problem_type not in {
         "auto",
         "classification",
-        "regression"
+        "regression",
     }:
 
         raise ValueError(
@@ -364,7 +439,7 @@ def train_and_compare_models(
 
     X, y = _prepare_features(
         df,
-        target_column
+        target_column,
     )
 
     if problem_type == "auto":
@@ -391,7 +466,7 @@ def train_and_compare_models(
 
     stratify = _get_stratify_target(
         y,
-        problem_type
+        problem_type,
     )
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -399,7 +474,7 @@ def train_and_compare_models(
         y,
         test_size=0.20,
         random_state=42,
-        stratify=stratify
+        stratify=stratify,
     )
 
     preprocessor = _build_preprocessor(X)
@@ -416,12 +491,12 @@ def train_and_compare_models(
 
             pipeline = _build_pipeline(
                 preprocessor,
-                model
+                model,
             )
 
             pipeline.fit(
                 X_train,
-                y_train
+                y_train,
             )
 
             predictions = pipeline.predict(
@@ -434,28 +509,28 @@ def train_and_compare_models(
 
                 accuracy = accuracy_score(
                     y_test,
-                    predictions
+                    predictions,
                 )
 
                 precision = precision_score(
                     y_test,
                     predictions,
                     average="weighted",
-                    zero_division=0
+                    zero_division=0,
                 )
 
                 recall = recall_score(
                     y_test,
                     predictions,
                     average="weighted",
-                    zero_division=0
+                    zero_division=0,
                 )
 
                 f1 = f1_score(
                     y_test,
                     predictions,
                     average="weighted",
-                    zero_division=0
+                    zero_division=0,
                 )
 
                 results.append(
@@ -463,20 +538,20 @@ def train_and_compare_models(
                         "model": model_name,
                         "accuracy": round(
                             float(accuracy),
-                            4
+                            4,
                         ),
                         "precision": round(
                             float(precision),
-                            4
+                            4,
                         ),
                         "recall": round(
                             float(recall),
-                            4
+                            4,
                         ),
                         "f1_score": round(
                             float(f1),
-                            4
-                        )
+                            4,
+                        ),
                     }
                 )
 
@@ -484,19 +559,19 @@ def train_and_compare_models(
 
                 mae = mean_absolute_error(
                     y_test,
-                    predictions
+                    predictions,
                 )
 
                 mse = mean_squared_error(
                     y_test,
-                    predictions
+                    predictions,
                 )
 
                 rmse = mse ** 0.5
 
                 r2 = r2_score(
                     y_test,
-                    predictions
+                    predictions,
                 )
 
                 results.append(
@@ -504,20 +579,20 @@ def train_and_compare_models(
                         "model": model_name,
                         "mae": round(
                             float(mae),
-                            4
+                            4,
                         ),
                         "mse": round(
                             float(mse),
-                            4
+                            4,
                         ),
                         "rmse": round(
                             float(rmse),
-                            4
+                            4,
                         ),
                         "r2_score": round(
                             float(r2),
-                            4
-                        )
+                            4,
+                        ),
                     }
                 )
 
@@ -526,7 +601,7 @@ def train_and_compare_models(
             results.append(
                 {
                     "model": model_name,
-                    "error": str(error)
+                    "error": str(error),
                 }
             )
 
@@ -546,7 +621,7 @@ def train_and_compare_models(
 
         best_result = max(
             successful_results,
-            key=lambda result: result["f1_score"]
+            key=lambda result: result["f1_score"],
         )
 
         best_metric = "f1_score"
@@ -555,7 +630,7 @@ def train_and_compare_models(
 
         best_result = max(
             successful_results,
-            key=lambda result: result["r2_score"]
+            key=lambda result: result["r2_score"],
         )
 
         best_metric = "r2_score"
