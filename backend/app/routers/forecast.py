@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -86,7 +87,8 @@ def forecast_dataset(
             detail=str(error),
         )
     except Exception as error:
+        logging.getLogger(__name__).exception("Dataset processing failed")
         raise HTTPException(
             status_code=500,
-            detail=str(error),
+            detail="Processing failed. Check the server logs.",
         )

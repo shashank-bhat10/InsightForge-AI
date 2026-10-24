@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from app.database.session import SessionLocal
+from app.database.session import get_db
 from app.auth.jwt_handler import verify_token
 from app.models.user import User
 
@@ -12,12 +12,6 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def get_current_user(

@@ -35,7 +35,7 @@ router = APIRouter(
 
 
 @router.get("/test")
-def test_ai():
+def test_ai(current_user: User = Depends(get_current_user)):
     return generate_ai_response(
         "Hello InsightForge AI"
     )
@@ -124,8 +124,11 @@ def chat(
         )
 
     if not result["success"]:
+        if request.conversation_id is None:
+            db.delete(conversation)
+            db.commit()
         raise HTTPException(
-            status_code=500,
+            status_code=503,
             detail=result["response"]
         )
 

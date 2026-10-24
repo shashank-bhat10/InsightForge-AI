@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -62,8 +63,9 @@ def train_models(
         )
 
     except Exception as error:
+        logging.getLogger(__name__).exception("Dataset processing failed")
 
         raise HTTPException(
             status_code=500,
-            detail=str(error)
+            detail="Processing failed. Check the server logs."
         )

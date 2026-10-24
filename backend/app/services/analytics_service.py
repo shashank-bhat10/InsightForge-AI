@@ -119,7 +119,7 @@ def get_grouped_analysis(file_path: str):
     numeric_columns = df.select_dtypes(include="number").columns
 
     categorical_columns = df.select_dtypes(
-        include=["object", "category"]
+        include=["object", "category", "str"]
     ).columns
 
     grouped_analysis = {}
@@ -267,7 +267,7 @@ def get_dataset_quality(file_path: str):
     categorical_inconsistencies = {}
 
     categorical_columns = df.select_dtypes(
-        include=["object", "category"]
+        include=["object", "category", "str"]
     ).columns
 
     for column in categorical_columns:
@@ -563,7 +563,7 @@ def get_advanced_analytics(file_path: str):
     categorical_distributions = {}
 
     categorical_columns = df.select_dtypes(
-        include=["object", "category"]
+        include=["object", "category", "str"]
     ).columns
 
     for column in categorical_columns:

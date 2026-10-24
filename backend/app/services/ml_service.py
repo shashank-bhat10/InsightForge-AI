@@ -1,5 +1,7 @@
+import math
 import pandas as pd
 
+from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 
@@ -163,7 +165,7 @@ def _prepare_features(df: pd.DataFrame, target_column: str):
     columns_to_remove = []
 
     for column in X.select_dtypes(
-        include=["object", "category"]
+        include=["object", "category", "str"]
     ).columns:
 
         unique_ratio = (
@@ -195,7 +197,7 @@ def _build_preprocessor(X: pd.DataFrame):
     ).columns.tolist()
 
     categorical_columns = X.select_dtypes(
-        include=["object", "category", "bool"]
+        include=["object", "category", "str", "bool"]
     ).columns.tolist()
 
     transformers = []
@@ -232,6 +234,7 @@ def _build_preprocessor(X: pd.DataFrame):
                 (
                     "encoder",
                     OneHotEncoder(
+                        sparse_output=False,
                         handle_unknown="ignore"
                     ),
                 ),
@@ -330,7 +333,7 @@ def _build_pipeline(preprocessor, model):
         steps=[
             (
                 "preprocessor",
-                preprocessor,
+                clone(preprocessor),
             ),
             (
                 "model",
@@ -463,6 +466,14 @@ def train_and_compare_models(
             raise ValueError(
                 "Regression requires a numeric target column."
             )
+
+    if len(y) < 10:
+        raise ValueError("At least 10 usable rows are required for model evaluation.")
+    if problem_type == "classification":
+        counts = y.value_counts()
+        test_rows = math.ceil(len(y) * 0.2)
+        if counts.min() < 2 or test_rows < len(counts) or len(y) - test_rows < len(counts):
+            raise ValueError("Each class needs at least two rows and enough train/test rows for stratification.")
 
     stratify = _get_stratify_target(
         y,
@@ -656,7 +667,7 @@ def train_and_compare_models(
         "success": True,
         "problem_type": problem_type,
         "target_column": target_column,
-        "rows_used": len(df),
+        "rows_used": len(y),
         "features_used": list(X.columns),
         "train_rows": len(X_train),
         "test_rows": len(X_test),

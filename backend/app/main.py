@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database.base import Base
@@ -14,17 +16,25 @@ from app.routers import ml
 from app.routers import forecast
 
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app):
+    Base.metadata.create_all(bind=engine)
+    yield
 
 
 app = FastAPI(
+    lifespan=lifespan,
     title="InsightForge AI",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+
+@app.exception_handler(ValueError)
+async def invalid_dataset(request: Request, error: ValueError):
+    return JSONResponse(status_code=400, content={"detail": str(error)})
 
 
 # CORS

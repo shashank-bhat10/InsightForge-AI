@@ -1,14 +1,14 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConversationCreate(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=255)
 
 
 class ConversationRename(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=255)
 
 
 class ConversationResponse(BaseModel):
@@ -17,5 +17,4 @@ class ConversationResponse(BaseModel):
     title: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

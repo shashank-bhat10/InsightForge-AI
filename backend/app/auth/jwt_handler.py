@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
-from jose import jwt
+from datetime import datetime, timedelta, timezone
+import jwt
 
 from app.config.settings import settings
 
@@ -11,7 +11,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 def create_access_token(data: dict):
     to_encode = data.copy()
 
-    expire = datetime.utcnow() + timedelta(
+    expire = datetime.now(timezone.utc) + timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES
     )
 
@@ -23,7 +23,7 @@ def create_access_token(data: dict):
         algorithm=ALGORITHM,
     )
 
-from jose import JWTError
+from jwt import InvalidTokenError
 
 
 def verify_token(token: str):
@@ -37,5 +37,5 @@ def verify_token(token: str):
 
         return payload
 
-    except JWTError:
+    except InvalidTokenError:
         return None

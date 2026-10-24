@@ -56,3 +56,7 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+# Local review archives and credentials
+InsightForge-review.zip
+*.pem
+*.key

@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from google import genai
@@ -14,9 +15,11 @@ from app.services.analytics_service import (
 from app.services.dataset_service import get_dataset_preview
 
 
-client = genai.Client(
-    api_key=settings.GEMINI_API_KEY
-)
+def _client():
+    if not settings.GEMINI_API_KEY:
+        raise ValueError("AI chat is unavailable. Configure GEMINI_API_KEY in .env.")
+    return genai.Client(api_key=settings.GEMINI_API_KEY,
+                        http_options={"timeout": 30000})
 
 
 def generate_ai_response(
@@ -61,20 +64,23 @@ use the previous conversation to understand what they mean.
 Do not invent information.
 """
 
-        response = client.models.generate_content(
-            model="gemini-3.5-flash",
+        response = _client().models.generate_content(
+            model=settings.GEMINI_MODEL,
             contents=context
         )
 
         return {
-            "success": True,
-            "response": response.text
+            "success": bool(response.text and response.text.strip()),
+            "response": response.text or "The AI provider returned an empty response."
         }
 
-    except Exception as e:
+    except Exception as error:
+        logging.getLogger(__name__).warning("AI request failed (%s)", type(error).__name__)
         return {
             "success": False,
-            "response": str(e)
+            "response": ("AI chat is unavailable. Configure GEMINI_API_KEY in .env."
+                         if not settings.GEMINI_API_KEY else
+                         "AI request failed. Check provider configuration and try again.")
         }
 
 
@@ -187,18 +193,21 @@ INSTRUCTIONS:
 11. When useful, include the relevant value and category in the answer.
 """
 
-        response = client.models.generate_content(
-            model="gemini-3.5-flash",
+        response = _client().models.generate_content(
+            model=settings.GEMINI_MODEL,
             contents=dataset_context
         )
 
         return {
-            "success": True,
-            "response": response.text
+            "success": bool(response.text and response.text.strip()),
+            "response": response.text or "The AI provider returned an empty response."
         }
 
-    except Exception as e:
+    except Exception as error:
+        logging.getLogger(__name__).warning("AI request failed (%s)", type(error).__name__)
         return {
             "success": False,
-            "response": str(e)
+            "response": ("AI chat is unavailable. Configure GEMINI_API_KEY in .env."
+                         if not settings.GEMINI_API_KEY else
+                         "AI request failed. Check provider configuration and try again.")
         }

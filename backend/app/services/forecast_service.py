@@ -86,84 +86,57 @@ def _parse_date_column(
     them as object/string data.
     """
 
-    # Already datetime
-    if pd.api.types.is_datetime64_any_dtype(series):
-        parsed = pd.to_datetime(
-            series,
-            errors="coerce",
-        )
+    if pd.api.types.is_numeric_dtype(series):
+        if "timestamp" not in str(column_name).lower():
+            return None
+    else:
+        # Already datetime
+        if pd.api.types.is_datetime64_any_dtype(series):
+            parsed = pd.to_datetime(
+                series,
+                errors="coerce",
+            )
 
-        if parsed.notna().mean() >= 0.80:
-            return parsed
+            if parsed.notna().mean() >= 0.80:
+                return parsed
 
-    # Clean string/object values
-    cleaned = series.astype("string").str.strip()
+        # Clean string/object values
+        cleaned = series.astype("string").str.strip()
 
-    # First attempt: normal date parsing
-    parsed = pd.to_datetime(
-        cleaned,
-        errors="coerce",
-        format="mixed",
-    )
-
-    valid_ratio = parsed.notna().mean()
-
-    if valid_ratio >= 0.80:
-        return parsed
-
-    # Second attempt for date-like column names.
-    # This intentionally gives columns such as "Date" a stronger
-    # detection path.
-    if _looks_like_date_column(column_name):
+        # First attempt: normal date parsing
         parsed = pd.to_datetime(
             cleaned,
             errors="coerce",
+            format="mixed",
         )
 
-        if parsed.notna().mean() >= 0.50:
+        valid_ratio = parsed.notna().mean()
+
+        if valid_ratio >= 0.80:
             return parsed
 
-    # Numeric timestamps
-    if pd.api.types.is_numeric_dtype(series):
+        # Second attempt for date-like column names.
+        # This intentionally gives columns such as "Date" a stronger
+        # detection path.
+        if _looks_like_date_column(column_name):
+            parsed = pd.to_datetime(
+                cleaned,
+                errors="coerce",
+            )
+
+            if parsed.notna().mean() >= 0.50:
+                return parsed
+
+    # Only explicitly named timestamp columns may use numeric Unix epochs.
+    if pd.api.types.is_numeric_dtype(series) and "timestamp" in str(column_name).lower():
         non_null = series.dropna()
-
-        if len(non_null) > 0:
-
-            # Unix seconds
-            parsed_seconds = pd.to_datetime(
-                non_null,
-                unit="s",
-                errors="coerce",
-            )
-
-            if parsed_seconds.notna().mean() >= 0.80:
-                result = pd.Series(
-                    pd.NaT,
-                    index=series.index,
-                    dtype="datetime64[ns]",
-                )
-
-                result.loc[non_null.index] = parsed_seconds
-
-                return result
-
-            # Unix milliseconds
-            parsed_milliseconds = pd.to_datetime(
-                non_null,
-                unit="ms",
-                errors="coerce",
-            )
-
-            if parsed_milliseconds.notna().mean() >= 0.80:
-                result = pd.Series(
-                    pd.NaT,
-                    index=series.index,
-                    dtype="datetime64[ns]",
-                )
-
-                result.loc[non_null.index] = parsed_milliseconds
-
-                return result
+        if not non_null.empty:
+            magnitude = non_null.abs().median()
+            unit = "ms" if magnitude >= 1e11 else "s"
+            if magnitude >= 1e8:
+                parsed = pd.to_datetime(series, unit=unit, errors="coerce")
+                if parsed.notna().mean() >= 0.80:
+                    return parsed
 
     return None
 
@@ -206,7 +179,7 @@ def get_forecast_columns(file_path: str):
     numeric_columns = []
 
     for column in df.columns:
-        column_name = str(column).strip()
+        column_name = str(column)
         series = df[column]
 
         # Numeric columns
@@ -275,7 +248,7 @@ def generate_forecast(
             "date": dates,
             "value": target,
         }
-    ).dropna()
+    ).replace([np.inf, -np.inf], np.nan).dropna()
 
     if len(data) < 8:
         raise ValueError(
@@ -287,11 +260,14 @@ def generate_forecast(
     if frequency == "auto":
         frequency = _detect_frequency(data["date"])
 
+    if frequency == "M":
+        frequency = "ME"
+
     allowed_frequencies = {
         "D",
         "W",
         "MS",
-        "M",
+        "ME",
         "QS",
         "YS",
     }
@@ -370,10 +346,7 @@ def generate_forecast(
         future_index,
         predictions,
     ):
-        lower = max(
-            0.0,
-            prediction - (1.96 * residual_std),
-        )
+        lower = prediction - (1.96 * residual_std)
 
         upper = prediction + (
             1.96 * residual_std

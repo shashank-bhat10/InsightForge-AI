@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   Bar,
   BarChart,
@@ -10,7 +10,7 @@ import {
 } from 'recharts'
 import './App.css'
 
-const API_URL = 'https://insightforge-backend-6ldc.onrender.com'
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 
 type User = {
   id: number
@@ -44,11 +44,11 @@ type Statistics = {
     string,
     {
       count: number
-      mean: number
-      median: number
-      min: number
-      max: number
-      std: number
+      mean: number | null
+      median: number | null
+      min: number | null
+      max: number | null
+      std: number | null
     }
   >
 }
@@ -139,6 +139,24 @@ type ChatMessage = {
   created_at?: string
 }
 
+type MLResult = {
+  problem_type: string
+  train_rows: number
+  test_rows: number
+  best_model: string
+  models: { model: string; error?: string; accuracy?: number; precision?: number; recall?: number; f1_score?: number; mae?: number; rmse?: number; r2_score?: number }[]
+  explainability: null | { method: string; features: { feature: string; importance: number; std: number }[] }
+}
+
+type ForecastResult = {
+  model: string
+  frequency: string
+  historical_periods: number
+  forecast_periods: number
+  trend_slope: number | null
+  forecast: { date: string; predicted: number | null; lower_bound: number | null; upper_bound: number | null }[]
+}
+
 type Page =
   | 'overview'
   | 'datasets'
@@ -184,7 +202,7 @@ function App() {
 
   const [mlTarget, setMlTarget] = useState('')
   const [mlProblemType, setMlProblemType] = useState<'auto' | 'classification' | 'regression'>('auto')
-  const [mlResult, setMlResult] = useState<any | null>(null)
+  const [mlResult, setMlResult] = useState<MLResult | null>(null)
   const [mlLoading, setMlLoading] = useState(false)
   const [mlError, setMlError] = useState('')
 
@@ -192,7 +210,7 @@ function App() {
   const [forecastTargetColumn, setForecastTargetColumn] = useState('')
   const [forecastPeriods, setForecastPeriods] = useState(12)
   const [forecastFrequency, setForecastFrequency] = useState('auto')
-  const [forecastResult, setForecastResult] = useState<any | null>(null)
+  const [forecastResult, setForecastResult] = useState<ForecastResult | null>(null)
   const [forecastLoading, setForecastLoading] = useState(false)
   const [forecastError, setForecastError] = useState('')
   const [forecastColumns, setForecastColumns] = useState<{
@@ -226,25 +244,10 @@ function App() {
     Authorization: `Bearer ${token}`,
   }
 
-  useEffect(() => {
-    if (!token) {
-      return
-    }
-
-    loadCurrentUser()
-  }, [token])
-
-  useEffect(() => {
-    if (user) {
-      loadDatasets()
-      loadConversations()
-    }
-  }, [user])
-
-  const loadCurrentUser = async () => {
+  const loadCurrentUser = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/me`, {
-        headers: authHeaders,
+        headers: { Authorization: `Bearer ${token}` },
       })
 
       if (!response.ok) {
@@ -261,7 +264,7 @@ function App() {
       setToken('')
       setUser(null)
     }
-  }
+  }, [token])
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -320,10 +323,10 @@ function App() {
     setChatMessages([])
   }
 
-  const loadDatasets = async () => {
+  const loadDatasets = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/api/v1/datasets/`, {
-        headers: authHeaders,
+        headers: { Authorization: `Bearer ${token}` },
       })
 
       if (!response.ok) {
@@ -335,7 +338,7 @@ function App() {
     } catch {
       setDatasets([])
     }
-  }
+  }, [token])
 
   const uploadDataset = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -719,10 +722,10 @@ function App() {
     }
   }
 
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/api/v1/conversations/`, {
-        headers: authHeaders,
+        headers: { Authorization: `Bearer ${token}` },
       })
 
       if (!response.ok) {
@@ -734,7 +737,22 @@ function App() {
     } catch {
       setConversations([])
     }
-  }
+  }, [token])
+
+  useEffect(() => {
+    // This callback updates state only after the network request completes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (token) void loadCurrentUser()
+  }, [token, loadCurrentUser])
+
+  useEffect(() => {
+    if (user) {
+      // Fetch authenticated resources when the signed-in user changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadDatasets()
+      void loadConversations()
+    }
+  }, [user, loadDatasets, loadConversations])
 
   const loadConversationHistory = async (
     conversation: Conversation
@@ -960,23 +978,12 @@ function App() {
     })
   }
 
-  const salesChartEntries = Object.entries(groupedAnalysis)
-    .filter(([key, records]) => key.endsWith('_by_Sales') && records.length > 0)
-    .sort(([keyA], [keyB]) => {
-      const priority = (key: string) => {
-        if (key.startsWith('Item Type_')) return 0
-        if (key.startsWith('Outlet Location Type_')) return 1
-        if (key.startsWith('Outlet Type_')) return 2
-        return 3
-      }
-
-      return priority(keyA) - priority(keyB)
-    })
-    .slice(0, 2)
+  const groupedChartEntries = Object.entries(groupedAnalysis)
+    .filter(([, records]) => records.length > 0)
+    .slice(0, 6)
 
   const formatChartTitle = (key: string) => {
-    const category = key.replace(/_by_Sales$/, '')
-    return `${category} by Sales`
+    return key.replace('_by_', ' by ')
   }
 
   const exportAnalyticsReport = () => {
@@ -1000,11 +1007,11 @@ function App() {
               <tr>
                 <td>${escapeHtml(column)}</td>
                 <td>${stats.count}</td>
-                <td>${stats.mean.toFixed(2)}</td>
+                <td>${(stats.mean == null ? 'N/A' : stats.mean.toFixed(2))}</td>
                 <td>${stats.median}</td>
                 <td>${stats.min}</td>
                 <td>${stats.max}</td>
-                <td>${stats.std.toFixed(2)}</td>
+                <td>${(stats.std == null ? 'N/A' : stats.std.toFixed(2))}</td>
               </tr>
             `
           )
@@ -1088,7 +1095,7 @@ function App() {
     <div class="card">Data quality<strong>${qualityReport ? `${qualityReport.quality_score.toFixed(2)}%` : 'N/A'}</strong></div>
   </div>
 
-  <h2>AI-Generated Insights</h2>
+  <h2>Dataset Insights</h2>
   <ul>${insightRows || '<li>No insights available.</li>'}</ul>
 
   <h2>Data Quality</h2>
@@ -1911,7 +1918,7 @@ function App() {
                         <div className="section-heading">
                           <div>
                             <span className="section-kicker">
-                              AI-GENERATED
+                              DATASET SUMMARY
                             </span>
                             <h2>Insights</h2>
                           </div>
@@ -1933,14 +1940,14 @@ function App() {
                       </div>
                     </div>
 
-                    {salesChartEntries.length > 0 && (
+                    {groupedChartEntries.length > 0 && (
                       <div className="section-card">
                         <div className="section-heading">
                           <div>
                             <span className="section-kicker">
                               VISUAL ANALYTICS
                             </span>
-                            <h2>Sales performance</h2>
+                            <h2>Grouped comparisons</h2>
                           </div>
 
                           <div style={{ display: 'flex', gap: 8 }}>
@@ -1948,19 +1955,19 @@ function App() {
                               className={`small-button ${chartMetric === 'total' ? 'active' : ''}`}
                               onClick={() => setChartMetric('total')}
                             >
-                              Total sales
+                              Total
                             </button>
                             <button
                               className={`small-button ${chartMetric === 'average' ? 'active' : ''}`}
                               onClick={() => setChartMetric('average')}
                             >
-                              Average sales
+                              Average
                             </button>
                           </div>
                         </div>
 
                         <div className="analytics-columns">
-                          {salesChartEntries.map(([key, records]) => (
+                          {groupedChartEntries.map(([key, records]) => (
                             <div key={key} style={{ minWidth: 0 }}>
                               <h3 style={{ margin: '0 0 18px' }}>
                                 {formatChartTitle(key)}
@@ -1990,12 +1997,12 @@ function App() {
                                         Number(value).toLocaleString(undefined, {
                                           maximumFractionDigits: 2,
                                         }),
-                                        chartMetric === 'total' ? 'Total sales' : 'Average sales',
+                                        chartMetric === 'total' ? 'Total' : 'Average',
                                       ]}
                                     />
                                     <Bar
                                       dataKey={chartMetric}
-                                      name={chartMetric === 'total' ? 'Total sales' : 'Average sales'}
+                                      name={chartMetric === 'total' ? 'Total' : 'Average'}
                                       fill="#5b54e8"
                                       radius={[6, 6, 0, 0]}
                                     />
@@ -2234,7 +2241,7 @@ function App() {
                                     <div>
                                       <span>Mean</span>
                                       <strong>
-                                        {stats.mean.toFixed(2)}
+                                        {(stats.mean == null ? 'N/A' : stats.mean.toFixed(2))}
                                       </strong>
                                     </div>
 
@@ -2262,7 +2269,7 @@ function App() {
                                     <div>
                                       <span>Std Dev</span>
                                       <strong>
-                                        {stats.std.toFixed(2)}
+                                        {(stats.std == null ? 'N/A' : stats.std.toFixed(2))}
                                       </strong>
                                     </div>
                                   </div>
@@ -2384,7 +2391,7 @@ function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {mlResult.models.map((model: any) => (
+                            {mlResult.models.map((model) => (
                               <tr key={model.model}>
                                 <td><strong>{model.model}</strong></td>
                                 {model.error ? (
@@ -2434,7 +2441,7 @@ function App() {
 
                             <tbody>
                               {mlResult.explainability.features.map(
-                                (feature: any, index: number) => (
+                                (feature, index) => (
                                   <tr key={feature.feature}>
                                     <td>
                                       <strong>{index + 1}</strong>
@@ -2702,7 +2709,7 @@ function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {forecastResult.forecast.map((row: any) => (
+                            {forecastResult.forecast.map((row) => (
                               <tr key={row.date}>
                                 <td><strong>{row.date}</strong></td>
                                 <td>{row.predicted}</td>

@@ -1,6 +1,7 @@
 from pathlib import Path
-import shutil
 import uuid
+from app.config.settings import settings
+from app.services.dataset_service import load_dataset
 
 from fastapi import (
     APIRouter,
@@ -25,7 +26,7 @@ from app.repositories.dataset_repository import (
 from app.schemas.dataset import DatasetResponse
 
 
-UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 router = APIRouter(
@@ -49,7 +50,7 @@ def upload_dataset(
         ".xls"
     }
 
-    extension = Path(file.filename).suffix.lower()
+    extension = Path(file.filename or "").suffix.lower()
 
     if extension not in allowed_extensions:
         raise HTTPException(
@@ -63,21 +64,33 @@ def upload_dataset(
 
     file_path = UPLOAD_DIR / unique_filename
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(
-            file.file,
-            buffer
-        )
+    try:
+        size = 0
+        with open(file_path, "wb") as buffer:
+            while chunk := file.file.read(65536):
+                size += len(chunk)
+                if size > settings.MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="Upload exceeds the configured size limit.")
+                buffer.write(chunk)
+        load_dataset(str(file_path))
+    except Exception:
+        file_path.unlink(missing_ok=True)
+        raise
 
-    dataset = create_dataset(
-        db=db,
-        filename=unique_filename,
-        original_filename=file.filename,
-        file_type=extension,
-        file_size=file_path.stat().st_size,
-        file_path=str(file_path),
-        user_id=current_user.id
-    )
+    try:
+        dataset = create_dataset(
+            db=db,
+            filename=unique_filename,
+            original_filename=Path(file.filename).name[:255],
+            file_type=extension,
+            file_size=file_path.stat().st_size,
+            file_path=str(file_path),
+            user_id=current_user.id,
+        )
+    except Exception:
+        db.rollback()
+        file_path.unlink(missing_ok=True)
+        raise
 
     return dataset
 
@@ -137,6 +150,8 @@ def remove_dataset(
             status_code=404,
             detail="Dataset not found"
         )
+
+    Path(dataset.file_path).unlink(missing_ok=True)
 
     return {
         "success": True,
